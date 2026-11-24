@@ -1,0 +1,9 @@
+/temp/
+/.venv/
+/.idea/
+/.env
+/.chroma/
+/chroma_db/
+/notebooks/.ipynb_checkpoints/
+/__pycache__/
+/src/__pycache__/

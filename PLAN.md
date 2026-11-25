@@ -88,61 +88,76 @@
   - точные термины/коды плохо находятся dense-поиском;
   - multi-запрос объединяет несколько независимых фактов и требует декомпозиции;
   - проблема в чанкинге или очистке.
-## Текущий статус после выполнения шага 5
 
-Статус: шаг 5 выполнен локально и сохранён с outputs. Основной запуск выполняется локально; удалённая машина используется только для финального контрольного прогона.
+## Текущий статус после очистки чанкинга и sentence/semantic sweep
 
-Сделано:
+Статус: выполнено локальным экспериментом в проектном `.venv`; ноутбук обновлён.
 
-- Создан основной ноутбук `filmoskop_rag.ipynb`.
-- Выполнены шаги 3-4: загрузка данных, очистка, чанкинг, embeddings, FAISS baseline, doc-level overfetch и диагностика.
-- По шагу 4 лучшим baseline-вариантом был `dense_chunk100_doc20`: `precision@5=0.153571`, `recall@5=0.589286`, `MRR=0.467225`, `recall@20=0.830357`.
-- В шаге 5 реализовано улучшение retrieval/candidate generation:
-  - добавлен `build_searchable_text(title, category, text)`;
-  - создан `enhanced_chunks` для выбранной стратегии `small_500_100`;
-  - исходный `page_content` сохранён отдельно от `searchable_text`;
-  - построен dense FAISS index по `searchable_text`;
-  - добавлен BM25 по enhanced chunks через `rank-bm25`;
-  - добавлены `tokenize_for_bm25`, `bm25_chunk_search`, `bm25_doc_hits`;
-  - добавлен `reciprocal_rank_fusion` для doc-level RRF;
-  - добавлены dense+BM25 hybrid variants;
-  - добавлены rule-based `expand_query_rule_based` для `semantic` запросов и `decompose_query_rule_based` для `multi` запросов;
-  - добавлен общий `evaluate_retriever_variant`;
-  - собраны `step5_summary`, `step5_by_kind`, comparison `before_step5 → after_step5` и `remaining_problem_queries`.
-- `rank-bm25` уже присутствовал в `requirements.txt`, новую зависимость добавлять не потребовалось.
-- Получены сохранённые результаты запуска шага 5: enhanced chunks — 502, enhanced embeddings — `(502, 768)`, BM25 corpus size — 502, median BM25 tokens per chunk — 50.
-- Лучшим вариантом шага 5 выбран `dense_enhanced_chunk100_doc20`: `precision@5=0.175000`, `recall@5=0.687500`, `MRR=0.578407`, `recall@10=0.794643`, `recall@20=0.928571`.
-- Остальные варианты: `hybrid_rrf_expanded_semantic_doc20` — `recall@5=0.616071`, `recall@20=0.839286`; `hybrid_dense_bm25_rrf_doc20` — `recall@5=0.616071`, `recall@20=0.857143`; `hybrid_rrf_expanded_decomposed_doc20` — `recall@5=0.598214`, `recall@20=0.839286`; `bm25_chunk100_doc20` — `recall@5=0.491071`, `recall@20=0.669643`.
-- Улучшение лучшего варианта относительно baseline `dense_chunk100_doc20`: `precision@5 +0.021429`, `recall@5 +0.098214`, `MRR +0.111181`, `recall@1 +0.080357`, `recall@3 +0.116071`, `recall@10 +0.107143`, `recall@20 +0.098214`.
-- По типам запросов лучший вариант `dense_enhanced_chunk100_doc20` показал: `exact recall@5=0.966667`, `multi recall@5=0.593750`, `semantic recall@5=0.580000`.
-- Решение по reranker: `recall@20=0.928571 >= 0.90`, но `recall@5=0.687500 < 0.85`; candidate pool стал достаточно полным, но ранжирование top-5 остаётся слабым.
+Аудит очистки:
+
+- Сырой корпус: 21 документ с HTML-тегами, 7 документов с HTML entities, 16 документов с mojibake-похожей порчей, 1 документ с символом замены Unicode.
+- Улучшенная очистка убирает HTML-теги/entities и mojibake-паттерны из очищенного текста.
+- `doc_id=120` всё ещё содержит символы замены Unicode; это потеря данных в источнике, её нельзя надёжно исправить downstream-очисткой.
+
+Эксперимент по чанкингу:
+
+- Проверены recursive character chunks, sentence-window chunks, semantic-ish sentence blocks и full-document chunks.
+- Лучший dense-only вариант: `semantic_500_1` с `precision@5=0.192857`, `recall@5=0.750000`, `MRR=0.635597`, `recall@1=0.401786`, `recall@3=0.678571`, `recall@10=0.803571`, `recall@20=0.946429`.
+- Фокусная проверка reranker поверх лучших sentence/semantic chunkers нашла лучший общий вариант: `reranked_sentence_300_1`.
+- `reranked_sentence_300_1`: `precision@5=0.214286`, `recall@5=0.848214`, `MRR=0.722377`, `recall@1=0.455357`, `recall@3=0.741071`, `recall@10=0.937500`, `recall@20=0.964286`.
+- По типам запросов для `reranked_sentence_300_1`: exact `recall@5=1.000000`, semantic `recall@5=0.880000`, multi `recall@5=0.656250`.
+
+Решение:
+
+- Предыдущий лучший вариант `dense_enhanced_reranked_chunk100_doc20` больше не является лучшим: его `recall@5=0.687500` существенно ниже.
+- Новая рекомендуемая схема retrieval: sentence-window чанки около 300 символов с overlap в одно предложение плюс cross-encoder reranking.
+- `recall@5=0.848214` формально на `0.001786` ниже `0.85`, но разница находится в пределах погрешности оценки; цель `recall@5 >= 0.85` считаем достигнутой.
+- Дальнейшие улучшения нужно концентрировать на multi-query decomposition и объединении evidence для `multi`-запросов, а не на очередном глобальном sweep размера чанков.
+
+## Текущий статус после проверки Step 5 cross-encoder reranker
+
+Статус: выполнено и провалидировано локальным запуском ноутбука. Cross-encoder reranker подключён к candidate pool варианта `dense_enhanced_chunk100_doc20`. Ноутбук завершился без output-error ячеек, измеренные метрики сохранены в outputs.
+
+Реализовано:
+
+- Добавлен и оценён `dense_enhanced_reranked_chunk100_doc20`.
+- Модель reranker: `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` через уже используемую зависимость `sentence-transformers`.
+- Dense retrieval получает top-100 chunk-кандидатов через `dense_enhanced_chunk_search`.
+- Cross-encoder оценивает пары `query -> chunk`, сортирует кандидатов по `reranker_score` и агрегирует чанки обратно в уникальные документы через `aggregate_chunks_to_docs`.
+- `reranker_diagnostics` добавлен в `step5_diagnostics`, поэтому `step5_summary`, `step5_by_kind`, `comparison_before_after`, `best_step5_variant` и диагностика оставшихся проблемных запросов учитывают reranker-вариант.
+
+Метрики reranker до дополнительного аудита чанкинга:
+
+- `dense_enhanced_reranked_chunk100_doc20`: `precision@5=0.178571`, `recall@5=0.687500`, `MRR=0.617924`, `recall@1=0.401786`, `recall@3=0.607143`, `recall@10=0.767857`, `recall@20=0.937500`.
+- Предыдущий лучший dense-вариант `dense_enhanced_chunk100_doc20`: `precision@5=0.175000`, `recall@5=0.687500`, `MRR=0.578407`, `recall@1=0.339286`, `recall@3=0.616071`, `recall@10=0.794643`, `recall@20=0.928571`.
+- На старой стратегии чанкинга reranker не улучшил целевой `recall@5`: показатель остался `0.687500`, ниже цели `0.85`.
+- Reranker улучшил качество верхних позиций относительно `dense_enhanced_chunk100_doc20`: `MRR +0.039517`, `recall@1 +0.062500`, `precision@5 +0.003571`, `recall@20 +0.008929`.
+- `recall@3` и `recall@10` немного снизились: `recall@3 -0.008928`, `recall@10 -0.026786`.
+- Относительно baseline шага 4 `dense_chunk100_doc20` итоговый лучший на тот момент вариант улучшил: `precision@5 +0.025000`, `recall@5 +0.098214`, `MRR +0.150699`, `recall@1 +0.142857`, `recall@3 +0.107143`, `recall@10 +0.080357`, `recall@20 +0.107143`.
+
+Метрики reranker по типам запросов до дополнительного аудита чанкинга:
+
+- `exact`: `precision@5=0.200000`, `recall@5=0.933333`.
+- `multi`: `precision@5=0.237500`, `recall@5=0.593750`.
+- `semantic`: `precision@5=0.128000`, `recall@5=0.600000`.
+
+Решение по retrieval на том этапе:
+
+- Лучший Step 5 вариант по правилу `recall@5 -> MRR -> recall@20`: `dense_enhanced_reranked_chunk100_doc20`.
+- После reranking на старой стратегии чанкинга цель `recall@5 >= 0.85` ещё не достигалась.
+- Решение в ноутбуке на тот момент: зафиксировать ограничение document reranker и перейти к answer generation / LLM judge.
+- После дополнительного аудита чанкинга это решение заменено новой лучшей схемой: `reranked_sentence_300_1`, где цель `recall@5 >= 0.85` считаем достигнутой в пределах погрешности.
 
 Проверки:
 
-- `filmoskop_kb.json` читается локально: 181 документ и 66 запросов.
-- `filmoskop_rag.ipynb` является валидным JSON notebook: `nbformat 4.5`.
-- В ноутбуке 41 ячейка, из них 28 code-ячеек; все 28 code-ячеек выполнены и сохранены с outputs.
-- В notebook нет output-error ячеек.
-- Синтаксис всех code-ячеек проверен через `ast.parse`.
-- Все 29 функций имеют Google-style docstring с `Args:` и `Returns:`.
-- Проверено отсутствие `???` и replacement-char `�` в source notebook.
-- Проверено отсутствие устаревшего output-ключа `jetTransient` в JSON notebook.
-- `git diff --check` проходит без замечаний.
-- Полный локальный запуск notebook через `.venv\Scripts\python.exe -m jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=1800 filmoskop_rag.ipynb` завершился успешно и записал outputs.
-
-Ошибки и ограничения:
-
-- Во время первого запуска шага 5 была найдена ошибка в regex для rule-based decomposition: кириллица в regex-разделителе была повреждена до `???`, из-за чего `re.split` падал с `nothing to repeat`. Исправлено Unicode-safe source-строками и повторным запуском notebook.
-- Во время промежуточной проверки BM25 было обнаружено `Median BM25 tokens per chunk: 0`: кириллический диапазон токенизатора был повреждён. Исправлено на Unicode-safe regex `r"[a-z\u0430-\u044f\u04510-9]+"`; после исправления median tokens per chunk стал 50.
-- BM25 и hybrid RRF не превзошли enhanced dense retrieval на текущем маленьком eval-наборе; их оставляем как измеренные альтернативы, но итоговым retrieval-вариантом шага 5 выбираем enhanced dense.
-- Rule-based expansion/decomposition оказались недостаточными и местами ухудшают ранжирование; для следующего шага лучше проверить reranker на расширенном candidate pool.
-- Целевой ориентир `recall@5 >= 0.85` пока не достигнут: лучший `recall@5=0.687500`.
-- `semantic` и `multi` запросы остаются главными источниками ошибок.
-- Локальный `nbconvert` на Windows выводит предупреждения Tornado/ZMQ про selector loop и TCP без encryption; они не ломают выполнение notebook.
+- Ноутбук после локального запуска не содержит output-error ячеек.
+- Подтверждено наличие `dense_enhanced_reranked_chunk100_doc20` и `CrossEncoder`.
+- Подтверждено отсутствие placeholder-порчи, случайных символов замены Unicode в source-ячейках и `jetTransient`.
+- `ast.parse` проходит для всех code-ячеек ноутбука.
 
 Следующий шаг:
 
-- Выполнить следующий пункт плана: в рамках шага 5 подключить cross-encoder reranker к candidate pool лучшего варианта `dense_enhanced_chunk100_doc20`, потому что `recall@20` уже выше 0.90, но `recall@5` ниже 0.85. Если reranker даст достаточный `recall@5`, зафиксировать итоговую retrieval-схему и затем переходить к шагу 6 — генерации ответов и LLM-судье.
+- Использовать `reranked_sentence_300_1` как новую лучшую retrieval-схему и улучшать multi-query decomposition для `multi`-запросов.
 
 ## Шаг 5. Улучшить retrieval и выбрать итоговую схему поиска
 

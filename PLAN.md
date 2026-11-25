@@ -88,102 +88,61 @@
   - точные термины/коды плохо находятся dense-поиском;
   - multi-запрос объединяет несколько независимых фактов и требует декомпозиции;
   - проблема в чанкинге или очистке.
+## Текущий статус после выполнения шага 5
 
-Результат: baseline-метрики, список проблемных запросов, позиции релевантных документов в candidate pool и диагнозы.
-
-## Сквозные требования к оформлению
-
-- Все описательные markdown-ячейки в `filmoskop_rag.ipynb` должны быть на русском языке.
-- Все функции и методы в коде ноутбука должны иметь Google-style docstring: краткое описание, затем при необходимости `Args:`, `Returns:` и другие стандартные секции.
-- Основной запуск ноутбука выполняется на локальной Windows-машине с CPU FAISS (`faiss-cpu`).
-- Удалённая машина используется только для финального контрольного прогона после успешного локального запуска.
-
-## Текущий статус после выполнения шага 4
-
-Статус: шаг 4 выполнен локально и сохранён с outputs. Основной запуск выполняется локально; удалённая машина используется только для финального контрольного прогона.
+Статус: шаг 5 выполнен локально и сохранён с outputs. Основной запуск выполняется локально; удалённая машина используется только для финального контрольного прогона.
 
 Сделано:
 
 - Создан основной ноутбук `filmoskop_rag.ipynb`.
-- В ноутбук добавлен минимальный pipeline для шага 3:
-  - загрузка `filmoskop_kb.json`;
-  - минимальная очистка текста как вход для чанкинга;
-  - две стратегии `RecursiveCharacterTextSplitter`:
-    - `small_500_100`;
-    - `medium_900_150`;
-  - чанки с метаданными `doc_id`, `title`, `category`, `chunk_id`;
-  - эмбеддинги `intfloat/multilingual-e5-base` с E5-префиксами `passage:` и `query:`;
-  - FAISS `IndexFlatIP` для нормализованных эмбеддингов с CPU fallback;
-  - retrieval-метрики без `gap`-запросов:
-    - `precision@5`;
-    - `recall@5`;
-    - `MRR`;
-    - `recall@K` для `K = {1, 3, 5, 10, 20}`;
-  - ручной просмотр первых чанков;
-  - выбор стратегии по `recall@5`, `MRR`, `precision@5`.
-- В `requirements.txt` добавлен `langchain-text-splitters`, потому что ноутбук напрямую использует `RecursiveCharacterTextSplitter`.
-- После восстановления кодировки ноутбук сохранён как UTF-8, очищен от stale outputs/metadata и затем повторно выполнен пользователем.
-- Получены сохранённые результаты запуска шага 3:
-  - документы: 181;
-  - вопросы: 66;
-  - eval-запросы без `gap`: 56;
-  - PyTorch device для эмбеддингов: `cuda`;
-  - FAISS: `1.16.0`, используется CPU FAISS;
-  - `small_500_100`: 502 чанка, медианная длина 374;
-  - `medium_900_150`: 323 чанка, медианная длина 462;
-  - `small_500_100`: `precision@5=0.153571`, `recall@5=0.589286`, `MRR=0.465340`, `recall@20=0.776786`;
-  - `medium_900_150`: `precision@5=0.146429`, `recall@5=0.562500`, `MRR=0.417792`, `recall@20=0.785714`.
-- По `recall@5`, `MRR` и `precision@5` выбрана стратегия `small_500_100`.
-- В ноутбук добавлен и выполнен baseline retrieval для шага 4:
-  - выбранная стратегия `small_500_100` используется как baseline;
-  - реализован `dense_chunk_search` для top-K chunk retrieval с метаданными и опциональными `category`/`score_threshold` фильтрами;
-  - реализована агрегация chunk hits в уникальные документы по лучшему score;
-  - добавлены doc-level варианты `dense_chunk20_doc20`, `dense_chunk50_doc20`, `dense_chunk100_doc20`;
-  - построено распределение dense score и диагностический порог `p10=0.8191`;
-  - показан sample top-K chunks и doc-level aggregation;
-  - показан пример category-фильтра для `Подписка и оплата`;
-  - посчитаны метрики по типам запросов;
-  - собрана таблица проблемных запросов с позициями релевантных документов в top-100 doc candidate pool.
-- Получены сохранённые результаты запуска шага 4:
-  - baseline strategy: `small_500_100`;
-  - chunks: 502;
-  - eval-запросы без `gap`: 56;
-  - `dense_chunk20_doc20`: `precision@5=0.153571`, `recall@5=0.589286`, `MRR=0.465340`, `recall@10=0.687500`, `recall@20=0.776786`;
-  - `dense_chunk50_doc20`: `precision@5=0.153571`, `recall@5=0.589286`, `MRR=0.467225`, `recall@10=0.687500`, `recall@20=0.830357`;
-  - `dense_chunk100_doc20`: `precision@5=0.153571`, `recall@5=0.589286`, `MRR=0.467225`, `recall@10=0.687500`, `recall@20=0.830357`;
-  - по типам запросов для `dense_chunk100_doc20`: `exact recall@5=0.833333`, `multi recall@5=0.531250`, `semantic recall@5=0.480000`;
-  - проблемных запросов с `recall@5 < 1.0`: 29.
+- Выполнены шаги 3-4: загрузка данных, очистка, чанкинг, embeddings, FAISS baseline, doc-level overfetch и диагностика.
+- По шагу 4 лучшим baseline-вариантом был `dense_chunk100_doc20`: `precision@5=0.153571`, `recall@5=0.589286`, `MRR=0.467225`, `recall@20=0.830357`.
+- В шаге 5 реализовано улучшение retrieval/candidate generation:
+  - добавлен `build_searchable_text(title, category, text)`;
+  - создан `enhanced_chunks` для выбранной стратегии `small_500_100`;
+  - исходный `page_content` сохранён отдельно от `searchable_text`;
+  - построен dense FAISS index по `searchable_text`;
+  - добавлен BM25 по enhanced chunks через `rank-bm25`;
+  - добавлены `tokenize_for_bm25`, `bm25_chunk_search`, `bm25_doc_hits`;
+  - добавлен `reciprocal_rank_fusion` для doc-level RRF;
+  - добавлены dense+BM25 hybrid variants;
+  - добавлены rule-based `expand_query_rule_based` для `semantic` запросов и `decompose_query_rule_based` для `multi` запросов;
+  - добавлен общий `evaluate_retriever_variant`;
+  - собраны `step5_summary`, `step5_by_kind`, comparison `before_step5 → after_step5` и `remaining_problem_queries`.
+- `rank-bm25` уже присутствовал в `requirements.txt`, новую зависимость добавлять не потребовалось.
+- Получены сохранённые результаты запуска шага 5: enhanced chunks — 502, enhanced embeddings — `(502, 768)`, BM25 corpus size — 502, median BM25 tokens per chunk — 50.
+- Лучшим вариантом шага 5 выбран `dense_enhanced_chunk100_doc20`: `precision@5=0.175000`, `recall@5=0.687500`, `MRR=0.578407`, `recall@10=0.794643`, `recall@20=0.928571`.
+- Остальные варианты: `hybrid_rrf_expanded_semantic_doc20` — `recall@5=0.616071`, `recall@20=0.839286`; `hybrid_dense_bm25_rrf_doc20` — `recall@5=0.616071`, `recall@20=0.857143`; `hybrid_rrf_expanded_decomposed_doc20` — `recall@5=0.598214`, `recall@20=0.839286`; `bm25_chunk100_doc20` — `recall@5=0.491071`, `recall@20=0.669643`.
+- Улучшение лучшего варианта относительно baseline `dense_chunk100_doc20`: `precision@5 +0.021429`, `recall@5 +0.098214`, `MRR +0.111181`, `recall@1 +0.080357`, `recall@3 +0.116071`, `recall@10 +0.107143`, `recall@20 +0.098214`.
+- По типам запросов лучший вариант `dense_enhanced_chunk100_doc20` показал: `exact recall@5=0.966667`, `multi recall@5=0.593750`, `semantic recall@5=0.580000`.
+- Решение по reranker: `recall@20=0.928571 >= 0.90`, но `recall@5=0.687500 < 0.85`; candidate pool стал достаточно полным, но ранжирование top-5 остаётся слабым.
 
 Проверки:
 
 - `filmoskop_kb.json` читается локально: 181 документ и 66 запросов.
 - `filmoskop_rag.ipynb` является валидным JSON notebook: `nbformat 4.5`.
-- В ноутбуке 30 ячеек, из них 19 выполненных code-ячеек.
+- В ноутбуке 41 ячейка, из них 28 code-ячеек; все 28 code-ячеек выполнены и сохранены с outputs.
+- В notebook нет output-error ячеек.
 - Синтаксис всех code-ячеек проверен через `ast.parse`.
-- В ноутбуке нет признаков повторной encoding-коррупции по контрольным маркерам.
-- Все 14 функций имеют Google-style docstring с `Args:` и `Returns:`.
-- Проверено отсутствие `???` и replacement-char `�` в source notebook после Unicode-safe rewrite.
+- Все 29 функций имеют Google-style docstring с `Args:` и `Returns:`.
+- Проверено отсутствие `???` и replacement-char `�` в source notebook.
+- Проверено отсутствие устаревшего output-ключа `jetTransient` в JSON notebook.
 - `git diff --check` проходит без замечаний.
-- Полный локальный запуск notebook через `.venv\Scripts\python.exe -m jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=1800 filmoskop_rag.ipynb` завершился записью outputs без output-error ячеек.
+- Полный локальный запуск notebook через `.venv\Scripts\python.exe -m jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=1800 filmoskop_rag.ipynb` завершился успешно и записал outputs.
 
 Ошибки и ограничения:
 
-- Baseline dense retrieval недостаточен для целевого ориентира `recall@5 >= 0.85`: текущий лучший doc-level overfetch сохраняет `recall@5=0.589286`.
-- Overfetch top-50/top-100 улучшает `recall@20` с `0.776786` до `0.830357`, но не улучшает `recall@5`; значит, часть релевантных документов попадает в candidate pool, но ранжируется ниже top-5.
-- Для нескольких запросов релевантный документ отсутствует даже в top-100 doc candidate pool, поэтому проблема не только в reranking, но и в candidate generation.
-- Хуже всего baseline работает на `semantic` и `multi` запросах: нужны расширение searchable text, лексический retrieval и трансформации запроса.
-- Следующие улучшения должны сначала расширить candidate pool и повысить полноту поиска; reranker имеет смысл подключать только после проверки, что нужные документы попадают в top-20/top-50/top-100 кандидатов.
-- `torch==2.5.1+cu121` установлен успешно в `.venv` с CUDA 12.1; `faiss-cpu` совместим с CUDA-сборкой PyTorch, но сам FAISS работает на CPU.
-- Остаточная папка `.venv\Lib\site-packages\~orch` является следом старой очистки Torch и может быть удалена вручную после закрытия Python/Jupyter/VS Code.
-- Если Jupyter уже запущен, после установки `langchain-text-splitters` нужно перезапустить kernel, иначе импорт `langchain_text_splitters` может продолжать падать в старом процессе.
-- В `requirements.txt` используется `faiss-cpu`, потому что FAISS GPU на Windows через `pip` не является надёжным вариантом для минимального прототипа.
-- Для выполнения шага 3 достаточно, чтобы `import faiss` проходил успешно в локальном Jupyter kernel. Если GPU FAISS доступен в отдельном окружении финального прогона, ноутбук использует его автоматически, но это не является требованием.
-- Перед успешным выполнением notebook был найден невалидный IDE-специфичный output-ключ `jetTransient` в старых outputs; notebook нормализован: добавлены cell ids и удалены transient output-поля.
-- При первичной вставке шага 4 через PowerShell here-string кириллица в добавленных ячейках была повреждена; ячейки переписаны Unicode-safe способом, повторная проверка corruption markers чистая.
+- Во время первого запуска шага 5 была найдена ошибка в regex для rule-based decomposition: кириллица в regex-разделителе была повреждена до `???`, из-за чего `re.split` падал с `nothing to repeat`. Исправлено Unicode-safe source-строками и повторным запуском notebook.
+- Во время промежуточной проверки BM25 было обнаружено `Median BM25 tokens per chunk: 0`: кириллический диапазон токенизатора был повреждён. Исправлено на Unicode-safe regex `r"[a-z\u0430-\u044f\u04510-9]+"`; после исправления median tokens per chunk стал 50.
+- BM25 и hybrid RRF не превзошли enhanced dense retrieval на текущем маленьком eval-наборе; их оставляем как измеренные альтернативы, но итоговым retrieval-вариантом шага 5 выбираем enhanced dense.
+- Rule-based expansion/decomposition оказались недостаточными и местами ухудшают ранжирование; для следующего шага лучше проверить reranker на расширенном candidate pool.
+- Целевой ориентир `recall@5 >= 0.85` пока не достигнут: лучший `recall@5=0.687500`.
+- `semantic` и `multi` запросы остаются главными источниками ошибок.
+- Локальный `nbconvert` на Windows выводит предупреждения Tornado/ZMQ про selector loop и TCP без encryption; они не ломают выполнение notebook.
 
 Следующий шаг:
 
-- Продолжить с шага 5: улучшить candidate generation через searchable text с `title`/`category`, BM25, dense+BM25 RRF, query expansion для `semantic` запросов и query decomposition для `multi` запросов; reranker подключать только после проверки, что нужные документы стабильно попадают в расширенный candidate pool.
+- Выполнить следующий пункт плана: в рамках шага 5 подключить cross-encoder reranker к candidate pool лучшего варианта `dense_enhanced_chunk100_doc20`, потому что `recall@20` уже выше 0.90, но `recall@5` ниже 0.85. Если reranker даст достаточный `recall@5`, зафиксировать итоговую retrieval-схему и затем переходить к шагу 6 — генерации ответов и LLM-судье.
 
 ## Шаг 5. Улучшить retrieval и выбрать итоговую схему поиска
 

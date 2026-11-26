@@ -303,6 +303,8 @@
 
 ## 6. Реализовать LLM-судью по требованиям ревью
 
+Статус: **выполнено 2026-11-26**.
+
 - Заменить бинарные `faithfulness` и `answer_relevance` на шкалу 1–5 с якорями.
 - Использовать строгий `JUDGE_SYSTEM` и отдельные prompts для faithfulness, answer relevance и binary correctness по `gold`.
 - Сохранять `reason`, `score`, raw response, `judge_parse_ok`, `judge_fallback_used`.
@@ -310,6 +312,33 @@
 - Для шкал 1–5 считать средний score и долю score `>= 4`.
 
 Результат: оценка генерации соответствует ревью и не скрывает parse/fallback проблемы.
+
+Что изменено:
+
+- В `filmoskop_rag.ipynb` бинарный объединённый judge prompt заменён на обязательный `JUDGE_SYSTEM` из `spec.md` и три отдельных prompts: `FAITH_PROMPT`, `RELEVANCE_PROMPT`, `CORRECTNESS_PROMPT`.
+- `faithfulness` и `answer_relevance` теперь нормализуются как score 1–5; дополнительно сохраняются `faithfulness_ge4` и `answer_relevance_ge4` для доли score `>= 4`.
+- `correctness` оценивается отдельным prompt как binary score 0/1 по `gold`.
+- `judge_answer()` сохраняет reason по каждой метрике, aggregate explanation, raw responses, parse diagnostics, `judge_parse_ok`, `judge_parse_error`, `judge_fallback_used`.
+- Exact `gap` refusal оставлен deterministic-путём: фраза `В базе знаний нет информации для ответа на этот вопрос.` получает faithfulness=5, answer_relevance=5, correctness=1 без вызова LLM-судьи.
+- Добавлен helper `summarize_judge_scores(eval_df)`, который считает mean score и долю `>= 4` по основному профилю отдельно от fallback rows и явно показывает `judge_fallback_rows`.
+- Preview-таблица этапа 5/6 расширена колонками `faithfulness_ge4`, `answer_relevance_ge4`, `faithfulness_reason`, `answer_relevance_reason`, `correctness_reason`.
+- Markdown этапа 6 обновлён: зафиксировано, что judge пересобран, а полный прогон 66 запросов и golden-context comparison остаются пунктом 7.
+
+Проверки:
+
+- `filmoskop_rag.ipynb` успешно парсится как JSON.
+- Все code-ячейки notebook проходят `ast.parse`.
+- Output-error ячеек не найдено.
+- В stage 6 подтверждены source-level признаки: `JUDGE_SYSTEM`, `FAITH_PROMPT`, `RELEVANCE_PROMPT`, `CORRECTNESS_PROMPT`, `normalize_score_1_to_5`, отдельный `call_metric_judge`, `summarize_judge_scores`, поля `faithfulness_ge4` / `answer_relevance_ge4`, raw responses и `judge_fallback_used`.
+- Проверено, что старый текст `Все три метрики бинарные` больше не используется в judge cell.
+
+Ошибки/ограничения:
+
+- Live-вызовы локального LLM-судьи не запускались, чтобы не зависеть от доступности endpoint и не перетирать существующие notebook outputs.
+- Fallback heuristic оставлен только как диагностический аварийный режим; строки с `judge_fallback_used=True` должны отделяться от основного профиля при полном eval.
+- Полный eval 66 запросов, golden-context comparison, worst-case analysis и финальный инженерный вердикт ещё не выполнены — это следующий пункт.
+
+Следующий шаг: перейти к пункту 7 — выполнить полный eval на 66 запросах, посчитать retrieval/generation breakdown, сравнить retrieval-context и golden-context correctness и разобрать худшие ошибки.
 
 ## 7. Выполнить полный eval на 66 запросах и golden-context comparison
 

@@ -105,6 +105,8 @@
 
 ## 3. Перемерить чанкинг, embeddings и baseline retrieval
 
+Статус: **выполнено 2026-11-26**.
+
 - Сравнить минимум две стратегии чанкинга на одном индексируемом корпусе и одном наборе non-gap запросов.
 - Использовать `intfloat/multilingual-e5-base` с префиксами `query:` и `passage:`.
 - Обосновать FAISS `IndexFlatIP`: нормализованные векторы, cosine через inner product, малый корпус, CPU достаточно.
@@ -113,6 +115,75 @@
 - Подобрать threshold по распределению similarity и явно сказать, используется он в pipeline или остаётся диагностическим.
 
 Результат: воспроизводимый baseline с outputs и понятной точкой сравнения.
+
+Что изменено:
+
+- В `filmoskop_rag.ipynb` пересчитаны outputs этапов 2 и 3 на `indexable_docs` — 134 документах после исключения заглушек, архива, дублей и невосстановимо повреждённого текста.
+- Ячейка этапа 3 теперь строит `doc_by_id` от `indexable_docs`, чтобы category filtering и диагностика retrieval не обращались к документам вне retrieval-index.
+- Сравнены 10 стратегий чанкинга на одном наборе из 56 non-gap запросов:
+  - `recursive_250_50`;
+  - `recursive_350_70`;
+  - `recursive_500_100`;
+  - `recursive_900_150`;
+  - `sentence_300_1`;
+  - `sentence_420_1`;
+  - `sentence_620_1`;
+  - `semantic_500_1`;
+  - `semantic_700_1`;
+  - `full_doc`.
+- Подтверждено использование `intfloat/multilingual-e5-base` с E5-префиксами:
+  - `passage:` для чанков;
+  - `query:` для запросов.
+- Подтверждён FAISS `IndexFlatIP`: эмбеддинги нормализованы, поэтому inner product соответствует cosine similarity; корпус малый, CPU-индекс достаточен.
+- Выбрана baseline-стратегия `semantic_500_1`: 452 чанка, `median_len=410`, `p90_len=483`.
+- Свежие метрики выбранной стратегии при сравнении стратегий:
+  - `precision@5=0.203571`;
+  - `recall@5=0.785714`;
+  - `MRR=0.699463`;
+  - `recall@1=0.464286`;
+  - `recall@3=0.705357`;
+  - `recall@10=0.839286`;
+  - `recall@20=0.901786`.
+- Свежий doc-level dense baseline с overfetch `dense_chunk100_doc20`:
+  - `precision@5=0.203571`;
+  - `recall@5=0.785714`;
+  - `MRR=0.700836`;
+  - `recall@1=0.464286`;
+  - `recall@3=0.705357`;
+  - `recall@10=0.848214`;
+  - `recall@20=0.982143`.
+- Breakdown baseline `dense_chunk100_doc20` по типам запросов:
+  - `exact`: `recall@5=1.000000`, `recall@20=1.000000`;
+  - `multi`: `recall@5=0.656250`, `recall@20=1.000000`;
+  - `semantic`: `recall@5=0.740000`, `recall@20=0.960000`.
+- Проверен пример metadata filtering по категории `Подписка и оплата`: выдача после фильтра содержит только документы этой категории.
+- Similarity threshold оставлен диагностическим инструментом, а не частью baseline pipeline: жёсткое отсечение кандидатов на малом eval-наборе может ухудшить recall.
+- Markdown-выводы этапов 2 и 3 обновлены: вместо устаревшего «нужно пересчитать» теперь зафиксированы свежие числа, выбор baseline и ограничения.
+
+Проверки:
+
+- Выполнены ячейки notebook `[2, 4, 6, 7, 10, 12, 14, 15, 17, 18, 21, 22, 23, 24, 26, 27, 28, 29]` через проектный `.venv` и `nbclient`, outputs сохранены в `filmoskop_rag.ipynb`.
+- `filmoskop_rag.ipynb` успешно парсится как JSON: `NOTEBOOK_JSON_OK`, `CELLS 54`.
+- Все code-ячейки notebook проходят `ast.parse`: `CODE_AST_ERRORS []`.
+- Output-error ячеек не найдено: `OUTPUT_ERRORS []`.
+- Семантические проверки notebook:
+  - `CHUNK_SETS_FROM_INDEXABLE True`;
+  - `DOC_BY_ID_FROM_INDEXABLE True`;
+  - `E5_PASSAGE_PREFIX True`;
+  - `E5_QUERY_PREFIX True`;
+  - `INDEXFLATIP True`;
+  - `STAGE2_MD_UPDATED True`;
+  - `STAGE3_MD_UPDATED True`.
+
+Ошибки/ограничения:
+
+- При первой попытке извлечения ячеек использовался bash-style heredoc, который некорректен для PowerShell; проектные файлы при этом не менялись, дальнейшие команды выполнены через временные `.py`-скрипты в `temp`.
+- Первый foreground-прогон `nbclient` попал в лимит tool-вызова 30 секунд из-за пересчёта embeddings; тот же скрипт был запущен отдельным процессом с логом и успешно завершился.
+- При выполнении через `nbclient` были только инфраструктурные предупреждения Windows/Jupyter (`Proactor event loop`, TCP kernel without encryption), ошибок выполнения notebook нет.
+- Baseline `recall@5=0.785714` ниже целевого ориентира `0.85`; основные потери остаются у `multi` и части `semantic` запросов. При этом `recall@20=0.982143`, значит многие relevant docs попадают в candidate pool и могут быть подняты улучшениями retrieval.
+- Similarity threshold пока не включён в pipeline, чтобы не потерять полноту до диагностики и улучшений retrieval.
+
+Следующий шаг: перейти к пункту 4 — улучшить retrieval на основе диагноза, сравнить варианты `до → после` и честно выбрать финальную схему поиска.
 
 ## 4. Улучшить retrieval на основе диагноза и честно оценить финальную схему
 

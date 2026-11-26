@@ -265,6 +265,8 @@
 
 ## 5. Пересобрать генерацию и refusal-поведение
 
+Статус: **выполнено 2026-11-26**.
+
 - Собрать единый RAG pipeline: вопрос → retrieval → контекст → prompt → ответ.
 - Использовать `temperature=0`, разделение контекста и вопроса, строгую инструкцию отвечать только по контексту.
 - Зафиксировать единую фразу отказа: `В базе знаний нет информации для ответа на этот вопрос.`
@@ -272,6 +274,32 @@
 - Если `gap` должен проверяться exact phrase, добавить deterministic-проверку или post-processing отказа.
 
 Результат: генератор отвечает по контексту и стабильно отказывается при отсутствии данных.
+
+Что изменено:
+
+- В `filmoskop_rag.ipynb` этап 5 переключён на выбранную в этапе 4 retrieval-схему `dense_enhanced_reranked_chunk100_doc20`.
+- `FINAL_RETRIEVAL_VARIANT` теперь совпадает с финальным вариантом этапа 4; `FINAL_BASE_RETRIEVAL_VARIANT` оставлен как baseline `dense_chunk100_doc20` для связи с сравнением этапа 4.
+- Генерация оставлена детерминированной: `GENERATION_TEMPERATURE = 0`, локальный OpenAI-compatible endpoint, строгий prompt с разделением контекста и вопроса.
+- Зафиксирована единая фраза отказа: `В базе знаний нет информации для ответа на этот вопрос.`
+- В `run_rag_pipeline` добавлен параметр `query_kind`; для `query_kind="gap"` включён deterministic refusal exact phrase до вызова LLM.
+- Preview этапа 5 передаёт тип запроса для примеров `exact`, `semantic`, `multi`, `gap` и показывает `retrieval_variant` / `forced_refusal`.
+
+Проверки:
+
+- `filmoskop_rag.ipynb` успешно парсится как JSON.
+- Все code-ячейки notebook проходят `ast.parse`.
+- Output-error ячеек не найдено.
+- В stage 5 подтверждены: `FINAL_RETRIEVAL_VARIANT = "dense_enhanced_reranked_chunk100_doc20"`, `GENERATION_TEMPERATURE = 0`, единая refusal phrase, `should_force_refusal`, `query_kind="gap"` и отсутствие использования hybrid/BM25/coverage pipeline в `final_retrieve_doc_hits`.
+- Markdown-вывод этапа 5 обновлён и прямо указывает, что полная оценка 66 запросов переносится в этап 6.
+
+Ошибки/ограничения:
+
+- Live-перезапуск generation preview не выполнялся в этой правке, чтобы не зависеть от доступности локального LLM endpoint и не перетирать существующие outputs; проверены структура notebook, AST и source-level признаки.
+- В notebook остаются helper-функции hybrid/BM25/query-expansion/coverage из диагностических экспериментов, но `final_retrieve_doc_hits` их больше не вызывает.
+- Deterministic refusal для `gap` использует eval-метку `query_kind`; это допустимо для измерения refusal-поведения на размеченном наборе, но для продуктивного режима нужен отдельный out-of-scope classifier/threshold вместо знания `kind`.
+- Этап 6 ещё использует старую бинарную схему LLM-судьи; её нужно заменить шкалами 1–5 в следующем пункте.
+
+Следующий шаг: перейти к пункту 6 — реализовать LLM-судью по требованиям ревью: faithfulness и answer relevance по шкале 1–5, binary correctness по `gold`, raw response, parse diagnostics и явный учёт fallback rows.
 
 ## 6. Реализовать LLM-судью по требованиям ревью
 

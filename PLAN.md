@@ -187,6 +187,8 @@
 
 ## 4. Улучшить retrieval на основе диагноза и честно оценить финальную схему
 
+Статус: **выполнено 2026-11-26**.
+
 - Найти слабые запросы и классифицировать причины: низкий rank, отсутствие candidate pool, сильная переформулировка, exact-коды, multi-hop, проблемы данных/чанкинга.
 - Проверить улучшения по диагнозу: BM25, RRF/hybrid, query expansion или HyDE, cross-encoder reranker, coverage-aware selection для `multi`.
 - Для каждого важного варианта сравнить `до → после` на тех же запросах и метриках.
@@ -195,6 +197,71 @@
 - Честно отметить, если правила и heuristics подбирались на этих же 56 non-gap запросах.
 
 Результат: финальный retrieval с корректными метриками, ограничениями и объяснением выбора.
+
+Что изменено:
+
+- В `filmoskop_rag.ipynb` обновлены markdown-вступление и вывод этапа 4: предварительный статус заменён на финальный инженерный вывод по измеренным outputs.
+- Зафиксирован диагноз baseline `dense_chunk100_doc20`: высокий `recall@20=0.982143` при недостаточном `recall@5=0.785714`, значит релевантные документы часто есть в candidate pool, но не подняты в top-5.
+- Сравнены варианты на тех же 56 non-gap запросах:
+  - BM25;
+  - dense+BM25 RRF;
+  - rule-based query expansion/decomposition;
+  - cross-encoder reranking top-100 dense chunk-кандидатов.
+- Выбрана финальная retrieval-схема этапа 4: `dense_enhanced_reranked_chunk100_doc20`.
+- Зафиксирована цена улучшения: дополнительная модель `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`, latency reranking top-100 chunk-кандидатов и более сложный pipeline.
+- Честно отмечено ограничение tuning on eval set для эвристик query expansion / coverage: они рассматривались на тех же 56 non-gap запросах и не считаются независимым доказательством обобщения.
+
+Метрики:
+
+- Baseline `dense_chunk100_doc20`:
+  - `precision@5=0.203571`;
+  - `recall@5=0.785714`;
+  - `MRR=0.700836`;
+  - `recall@1=0.464286`;
+  - `recall@3=0.705357`;
+  - `recall@10=0.848214`;
+  - `recall@20=0.982143`.
+- Improved `dense_enhanced_reranked_chunk100_doc20`:
+  - `precision@5=0.239286`;
+  - `recall@5=0.901786`;
+  - `MRR=0.802381`;
+  - `recall@1=0.580357`;
+  - `recall@3=0.767857`;
+  - `recall@10=0.946429`;
+  - `recall@20=0.973214`.
+- Изменение `до → после`:
+  - `delta_precision@5=+0.035714`;
+  - `delta_recall@5=+0.116071`;
+  - `delta_MRR=+0.101545`;
+  - `delta_recall@1=+0.116071`;
+  - `delta_recall@3=+0.062500`;
+  - `delta_recall@10=+0.098214`;
+  - `delta_recall@20=-0.008929`.
+- Breakdown финальной схемы `dense_enhanced_reranked_chunk100_doc20`:
+  - `exact`: `precision@5=0.213333`, `recall@5=1.000000`, `MRR=1.000000`, `recall@20=1.000000`;
+  - `semantic`: `precision@5=0.184000`, `recall@5=0.860000`, `MRR=0.604000`, `recall@20=0.960000`;
+  - `multi`: `precision@5=0.350000`, `recall@5=0.875000`, `MRR=0.927083`, `recall@20=0.968750`.
+
+Проверки:
+
+- `filmoskop_rag.ipynb` успешно парсится как JSON.
+- Все code-ячейки notebook проходят `ast.parse`.
+- Output-error ячеек не найдено.
+- В notebook присутствуют обновлённые markdown-выводы этапа 4.
+- Подтверждены сохранённые outputs этапа 4 для:
+  - `comparison_before_after` с baseline и improved метриками;
+  - `step5_by_kind` с breakdown по `exact`, `semantic`, `multi`;
+  - `chunking_vs_step5` с дополнительным сравнением чанкинга и reranking.
+
+Ошибки/ограничения:
+
+- Новых ошибок notebook не обнаружено.
+- Cross-encoder reranker улучшает качество, но добавляет модель, latency и усложняет эксплуатацию.
+- `recall@20` после reranking немного ниже baseline (`0.973214` против `0.982143`), потому что оптимизация направлена на top-5; для генерации это приемлемее, чем высокий recall только в глубоком candidate pool.
+- Query expansion / decomposition / coverage-aware правила проверялись на том же малом eval-наборе из 56 non-gap запросов; результаты таких эвристик нельзя трактовать как независимое подтверждение обобщения.
+- В этапах 5–6 ещё возможен рассинхрон с выбранной retrieval-схемой: генерационный pipeline и refusal-поведение будут пересобраны и проверены отдельно в пункте 5.
+
+Следующий шаг: перейти к пункту 5 — пересобрать генерацию и refusal-поведение поверх выбранной retrieval-схемы, зафиксировать `temperature=0`, строгий prompt и стабильный отказ для `gap`-запросов.
 
 ## 5. Пересобрать генерацию и refusal-поведение
 

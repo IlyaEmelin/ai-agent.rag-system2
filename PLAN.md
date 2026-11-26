@@ -342,13 +342,66 @@
 
 ## 7. Выполнить полный eval на 66 запросах и golden-context comparison
 
-- Прогнать все 66 запросов через финальный retrieval+generation+judge pipeline.
-- Собрать общий профиль: retrieval metrics, generation metrics, breakdown по `exact`, `semantic`, `multi`, `gap`.
-- Вывести худшие cases: retrieval misses, generation misses при найденном контексте, ошибки `multi`, проблемные `gap`, parse failures.
-- Выполнить golden-context run: передать генератору `relevant_docs` вместо найденных документов и сравнить `correctness` с обычным retrieval-context run.
-- Сделать вывод, где теряется качество: поиск, генерация или refusal policy.
+Статус: выполнено.
 
-Результат: полный профиль качества, диагностика причин ошибок и сравнение с золотым контекстом.
+Реализовано в ноутбуке:
+
+- Full eval на всех 66 запросах через финальный `run_rag_pipeline` + `judge_answer`.
+- Retrieval-метрики: `precision@5`, `recall@5`, `all_relevant@5`, `MRR`.
+- LLM-judge метрики: `faithfulness`, `answer_relevance`, `correctness`, доли `>=4`, parse/fallback diagnostics.
+- Golden-context run: генерация и judge на контексте из `relevant_docs` вместо найденных retrieval-документов.
+- Сравнение retrieval-context vs golden-context correctness.
+- Диагностические таблицы:
+  - retrieval misses;
+  - generation misses при найденном контексте;
+  - golden-context improvements;
+  - gap/refusal diagnostics;
+  - judge parse/fallback failures.
+- Компактный итоговый verdict сохранён в `step7_final_verdict_df` и `temp/point7_current_summary.json`.
+
+Фактический запуск:
+
+- Выполнено 66/66 primary queries и 66/66 golden-context queries.
+- Primary eval занял около 570 секунд; golden-context comparison — около 311 секунд.
+- Judge parse failures: `0`.
+- Judge fallback rows: `0`.
+
+Итоговые метрики:
+
+- `retrieval_recall@5_non_gap = 0.9018` — целевой порог `>= 0.85` достигнут.
+- `retrieval_all_relevant@5_non_gap = 0.8393`.
+- `correctness_retrieval_context = 0.8939` — чуть ниже целевого порога `>= 0.90`.
+- `correctness_golden_context = 0.8939`.
+- `correctness_delta_golden_minus_retrieval = 0.0`.
+- `faithfulness_mean_primary = 3.1364`.
+- `faithfulness_ge4_share_primary = 0.3182`.
+- `answer_relevance_mean_primary = 4.6364`.
+- `answer_relevance_ge4_share_primary = 0.8939`.
+- `gap_exact_refusal_rate = 1.0` — все 10 gap-запросов получили точный отказ.
+
+Breakdown по типам:
+
+- `exact` — `recall@5=1.0000`, `all_relevant@5=1.0000`, `MRR=0.8722`, `correctness=0.9333`.
+- `semantic` — `recall@5=0.9000`, `all_relevant@5=0.8800`, `MRR=0.7072`, `correctness=0.8800`.
+- `multi` — `recall@5=0.8125`, `all_relevant@5=0.6250`, `MRR=0.7865`, `correctness=0.8125`.
+- `gap` — `is_refusal=1.0000`, `forced_refusal=1.0000`, `correctness=1.0000`.
+
+Диагностика ошибок:
+
+- Retrieval misses: `9`.
+- Generation misses при найденном retrieval context: `4`.
+- Golden-context improvements: `4`.
+- Parse/fallback problems: `0`.
+
+Вывод:
+
+- Основной retrieval-порог для пилота выполнен: `recall@5_non_gap=0.9018`.
+- Общая correctness почти достигла цели, но формально не прошла порог `0.90`: `0.8939`.
+- Главная зона риска — `multi`-запросы: ниже `recall@5`, ниже `all_relevant@5` и ниже `correctness`, чем у `exact` и `semantic`.
+- Golden-context correctness не выше retrieval-context correctness в среднем, значит текущий остаточный разрыв качества объясняется не только поиском: остаются проблемы генерации/синтеза, формата ответа и строгости judge для части вопросов.
+- Refusal policy для gap работает корректно на текущем eval: `10/10` точных отказов.
+
+Результат: полный профиль качества, диагностика причин ошибок и сравнение с золотым контекстом сохранены в ноутбуке; система retrieval-ready, но для пилота нужна доработка `multi` и faithfulness/correctness перед фиксацией как production-ready.
 
 ## 8. Финализировать выводы, проверки и сдачу
 
